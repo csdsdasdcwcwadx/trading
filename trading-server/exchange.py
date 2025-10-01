@@ -8,6 +8,8 @@ from urllib.parse import urlencode
 import uuid
 from util import check_arbitrage, start_websocket
 import websocket
+from mexcproto import PushDataV3ApiWrapper_pb2
+import gzip
 # from cdp.auth.utils.jwt import generate_jwt, JwtOptions
 
 with open('../config.json', 'r', encoding='utf-8') as f:
@@ -17,11 +19,17 @@ with open('../config.json', 'r', encoding='utf-8') as f:
 exchange_type = "MARKET"
 default_currency = 'eth'
 fee = {
-    'binance': 0.0005,
-    'bitopro': 0.0005,
-    'maxcoin': 0.0005,
-    'pionex': 0.0005,
+    'binance': 0,
+    'bitopro': 0,
+    'maxcoin': 0,
+    'pionex': 0,
     'kraken': 0,
+    "mexc": 0,
+    'bybit': 0,
+    'gate': 0,
+    'bitget': 0,
+    'okx': 0,
+    'htx': 0,
 }
 
 class Binance:
@@ -652,7 +660,7 @@ class Kraken:
                 "params": {
                     "channel": "ticker",
                     "symbol": [
-                        "ETH/USDT",
+                        f"{self.currency.upper()}/USDT",
                     ],
                     "event_trigger": "bbo"
                 }
@@ -672,8 +680,267 @@ class Kraken:
 
                 if data.get('bid'):
                     self.bid = data['bid']
-                    self.askDepth = data['bid_qty']
+                    self.bidDepth = data['bid_qty']
 
-                print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+                # print('-------kraken-------')
+                check_arbitrage('kraken')
+
+                # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://ws.kraken.com/v2", on_message=on_message, on_open=on_open)
+
+class MEXC:
+    def __init__(self):
+        data = config["MEXC"]
+        self.ws = None
+
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {
+            "price_limit": [],
+            "amount_limit": [],
+            "notional_limit": []
+        }
+
+        self.ask = None
+        self.bid = None
+        self.fee = fee['mexc']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):
+        def on_open(ws):
+            subscribe_msg = {
+                "method": "SUBSCRIPTION",
+                "params": [
+                    f"spot@public.limit.depth.v3.api.pb@{self.currency.upper()}USDT@5"
+                ]
+            }
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            if isinstance(msg, str):
+                # 處理 JSON 訊息
+                print(f"📩 JSON 訊息: {msg}")
+                return
+            
+            if isinstance(msg, bytes):
+                # 嘗試解析為 JSON (某些交易所用 JSON 包裹)
+                try:
+                    text = msg.decode('utf-8')
+                    json_data = json.loads(text)
+                    print(f"📩 JSON 數據: {json_data}")
+                    return
+                except:
+                    pass  # 不是 JSON,繼續解析 protobuf
+
+            wrapper = PushDataV3ApiWrapper_pb2.PushDataV3ApiWrapper()
+            wrapper.ParseFromString(msg)
+            best_ask = wrapper.publicLimitDepths.asks[0]
+            best_bid = wrapper.publicLimitDepths.bids[0]
+
+            self.ask = best_ask.price
+            self.askDepth = best_ask.quantity
+            self.bid = best_bid.price
+            self.bidDepth = best_bid.quantity
+
+            # check_arbitrage('mexc')
+            # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+        self.ws = start_websocket(
+            url="wss://wbs-api.mexc.com/ws",
+            on_message=on_message,
+            on_open=on_open
+        )
+
+class Bybit:
+    def __init__(self):
+        data = config["Bybit"]
+        self.ws = None
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {"price_limit": [], "amount_limit": [], "notional_limit": []}
+        self.ask = None
+        self.bid = None
+        self.fee = fee['bybit']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):
+        def on_open(ws):
+            subscribe_msg = {"op": "subscribe", "args": [f"orderbook.1.{self.currency.upper()}USDT"]}
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            data = json.loads(msg)
+
+            if "data" in data:
+                depth = data["data"]
+                if "a" in depth and depth["a"]:
+                    self.ask = depth["a"][0][0]
+                    self.askDepth = depth["a"][0][1]
+                if "b" in depth and depth["b"]:
+                    self.bid = depth["b"][0][0]
+                    self.bidDepth = depth["b"][0][1]
+                # check_arbitrage("bybit")
+                # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+        self.ws = start_websocket(url="wss://stream.bybit.com/v5/public/spot", on_message=on_message, on_open=on_open)
+
+class Gate:
+    def __init__(self):
+        data = config["Gate"]
+        self.ws = None
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {"price_limit": [], "amount_limit": [], "notional_limit": []}
+        self.ask = None
+        self.bid = None
+        self.fee = fee['gate']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):
+        def on_open(ws):
+            subscribe_msg = {
+                "time": int(time.time()),
+                "channel": "spot.book_ticker",
+                "event": "subscribe",
+                "payload": [f"{self.currency.upper()}_USDT"]
+            }
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            data = json.loads(msg)
+
+            if data.get("result"):
+                depth = data["result"]
+                if "a" in depth and depth["a"]:
+                    self.ask = depth["a"]
+                    self.askDepth = depth["A"]
+                if "b" in depth and depth["b"]:
+                    self.bid = depth["b"]
+                    self.bidDepth = depth["B"]
+                # check_arbitrage("gate")
+                # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+
+        self.ws = start_websocket(url="wss://api.gateio.ws/ws/v4/", on_message=on_message, on_open=on_open)
+
+class Bitget:
+    def __init__(self):
+        data = config["Bitget"]
+        self.ws = None
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {"price_limit": [], "amount_limit": [], "notional_limit": []}
+        self.ask = None
+        self.bid = None
+        self.fee = fee['bitget']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):
+        def on_open(ws):
+            subscribe_msg = {"op": "subscribe", "args": [{"instType": "SPOT", "channel": "ticker", "instId": f"{self.currency.upper()}USDT"}]}
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            data = json.loads(msg)
+            if "data" in data:
+                depth = data["data"][0]
+                if "askPr" in depth and depth["askPr"]:
+                    self.ask = depth["askPr"]
+                    self.askDepth = depth["askSz"]
+                if "bidPr" in depth and depth["bidPr"]:
+                    self.bid = depth["bidPr"]
+                    self.bidDepth = depth["bidSz"]
+                # check_arbitrage("bitget")
+                # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+        self.ws = start_websocket(url="wss://ws.bitget.com/v2/ws/public", on_message=on_message, on_open=on_open)
+
+class OKX:
+    def __init__(self):
+        data = config["OKX"]
+        self.ws = None
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {"price_limit": [], "amount_limit": [], "notional_limit": []}
+        self.ask = None
+        self.bid = None
+        self.fee = fee['okx']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):    
+        def on_open(ws):
+            subscribe_msg = {
+                "op": "subscribe",
+                "args": [
+                    {
+                        "channel": "books",
+                        "instType": "SPOT",
+                        "instId": f"{self.currency.upper()}-USDT"
+                    }
+                ]
+            }
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            data = json.loads(msg)
+            if "data" in data:
+                depth = data["data"][0]
+                if "asks" in depth and depth["asks"]:
+                    self.ask = depth["asks"][0][0]
+                    self.askDepth = depth["asks"][0][1]
+                if "bids" in depth and depth["bids"]:
+                    self.bid = depth["bids"][0][0]
+                    self.bidDepth = depth["bids"][0][1]
+                # check_arbitrage("okx")
+                # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+        self.ws = start_websocket(url="wss://ws.okx.com:8443/ws/v5/public", on_message=on_message, on_open=on_open)
+
+class HTX:
+    def __init__(self):
+        data = config["HTX"]
+        self.ws = None
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {"price_limit": [], "amount_limit": [], "notional_limit": []}
+        self.ask = None
+        self.bid = None
+        self.fee = fee['htx']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):
+        def on_close(ws, close_status_code, close_msg):
+            print("WS htx closed, reconnecting...")
+            time.sleep(1)
+            self.start_ws()  # 自動重連
+    
+        def on_open(ws):
+            subscribe_msg = {"sub": f"market.{self.currency.lower()}usdt.depth.step0", "id": "id1"}
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            message = json.loads(gzip.decompress(msg).decode("utf-8"))
+            if "tick" in message:
+                depth = message["tick"]
+                self.ask = depth["asks"][0][0]
+                self.askDepth = depth["asks"][0][1]
+                self.bid = depth["bids"][0][0]
+                self.bidDepth = depth["bids"][0][1]
+                # check_arbitrage("htx")
+                # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+        self.ws = start_websocket(url="wss://api.huobi.pro/ws", on_message=on_message, on_open=on_open, on_close=on_close)
+
