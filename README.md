@@ -25,7 +25,7 @@
     "Kraken": {
         "API_Key": "",
         "Secret_Key": "" 
-    },
+    }
 }
 ```
 
