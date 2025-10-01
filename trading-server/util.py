@@ -41,12 +41,12 @@ def calculate_profit(buy_ex, sell_ex):
     if profit > 0:
         return _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fee, sell_fee)
     else:
-        if buy_ask < sell_bid:
-            print(f"[無套利] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 損益: {profit}")
+        # if buy_ask < sell_bid:
+        #     print(f"[無套利] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 損益: {profit}")
         return False
 
 def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fee, sell_fee):
-    print(f"[套利機會] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 利潤: {profit}")
+    # print(f"[套利機會] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 利潤: {profit}")
     logger.info(f"[套利機會] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 利潤: {profit}")
     return True
 
@@ -80,15 +80,15 @@ def start_websocket(url, on_message, on_open = None, on_close = None):
 
 def init_clients():
     from exchange import Binance, Bitopro, Maxcoin, CoinBase, Pionex, Kraken, MEXC, Bybit, Gate, Bitget, OKX, HTX
-    # clients['bitopro'] = Bitopro()
-    # clients['binance'] = Binance()
-    # clients['maxcoin'] = Maxcoin()
-    # # clients['coinbase'] = CoinBase()
-    # clients['pionex'] = Pionex()
-    # clients['kraken'] = Kraken()
-    # clients['mexc'] = MEXC()
-    # clients['bybit'] = Bybit()
-    # clients['gate'] = Gate()
-    # clients['bitget'] = Bitget()
-    # clients['okx'] = OKX()
-    # clients['htx'] = HTX()
+    clients['bitopro'] = Bitopro()
+    clients['binance'] = Binance()
+    clients['maxcoin'] = Maxcoin()
+    # clients['coinbase'] = CoinBase()
+    clients['pionex'] = Pionex()
+    clients['kraken'] = Kraken()
+    clients['mexc'] = MEXC()
+    clients['bybit'] = Bybit()
+    clients['gate'] = Gate()
+    clients['bitget'] = Bitget()
+    clients['okx'] = OKX()
+    clients['htx'] = HTX()

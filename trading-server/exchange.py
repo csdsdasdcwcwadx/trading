@@ -19,17 +19,17 @@ with open('../config.json', 'r', encoding='utf-8') as f:
 exchange_type = "MARKET"
 default_currency = 'eth'
 fee = {
-    'binance': 0,
-    'bitopro': 0,
-    'maxcoin': 0,
-    'pionex': 0,
+    'binance': 0.0005,
+    'bitopro': 0.0005,
+    'maxcoin': 0.0005,
+    'pionex': 0.0005,
     'kraken': 0,
-    "mexc": 0,
-    'bybit': 0,
-    'gate': 0,
-    'bitget': 0,
-    'okx': 0,
-    'htx': 0,
+    "mexc": 0.0005,
+    'bybit': 0.0005,
+    'gate': 0.0005,
+    'bitget': 0.0005,
+    'okx': 0.0005,
+    'htx': 0.0005,
 }
 
 class Binance:
@@ -223,7 +223,7 @@ class Bitopro:
                 return data
             
     def start_ws(self):
-        self.limit = self.limitation()
+        # self.limit = self.limitation()
 
         def on_message(ws, msg):
             data = json.loads(msg)
@@ -675,12 +675,12 @@ class Kraken:
                 data = data['data'][0]
                 
                 if data.get('ask'):
-                    self.ask = data['ask']
-                    self.askDepth = data['ask_qty']
+                    self.ask = float(data['ask'])
+                    self.askDepth = float(data['ask_qty'])
 
                 if data.get('bid'):
-                    self.bid = data['bid']
-                    self.bidDepth = data['bid_qty']
+                    self.bid = float(data['bid'])
+                    self.bidDepth = float(data['bid_qty'])
 
                 # print('-------kraken-------')
                 check_arbitrage('kraken')
@@ -721,31 +721,19 @@ class MEXC:
 
         def on_message(ws, msg):
             if isinstance(msg, str):
-                # 處理 JSON 訊息
-                print(f"📩 JSON 訊息: {msg}")
                 return
-            
-            if isinstance(msg, bytes):
-                # 嘗試解析為 JSON (某些交易所用 JSON 包裹)
-                try:
-                    text = msg.decode('utf-8')
-                    json_data = json.loads(text)
-                    print(f"📩 JSON 數據: {json_data}")
-                    return
-                except:
-                    pass  # 不是 JSON,繼續解析 protobuf
 
             wrapper = PushDataV3ApiWrapper_pb2.PushDataV3ApiWrapper()
             wrapper.ParseFromString(msg)
             best_ask = wrapper.publicLimitDepths.asks[0]
             best_bid = wrapper.publicLimitDepths.bids[0]
 
-            self.ask = best_ask.price
-            self.askDepth = best_ask.quantity
-            self.bid = best_bid.price
-            self.bidDepth = best_bid.quantity
+            self.ask = float(best_ask.price)
+            self.askDepth = float(best_ask.quantity)
+            self.bid = float(best_bid.price)
+            self.bidDepth = float(best_bid.quantity)
 
-            # check_arbitrage('mexc')
+            check_arbitrage('mexc')
             # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(
@@ -779,12 +767,12 @@ class Bybit:
             if "data" in data:
                 depth = data["data"]
                 if "a" in depth and depth["a"]:
-                    self.ask = depth["a"][0][0]
-                    self.askDepth = depth["a"][0][1]
+                    self.ask = float(depth["a"][0][0])
+                    self.askDepth = float(depth["a"][0][1])
                 if "b" in depth and depth["b"]:
-                    self.bid = depth["b"][0][0]
-                    self.bidDepth = depth["b"][0][1]
-                # check_arbitrage("bybit")
+                    self.bid = float(depth["b"][0][0])
+                    self.bidDepth = float(depth["b"][0][1])
+                check_arbitrage("bybit")
                 # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://stream.bybit.com/v5/public/spot", on_message=on_message, on_open=on_open)
@@ -819,12 +807,12 @@ class Gate:
             if data.get("result"):
                 depth = data["result"]
                 if "a" in depth and depth["a"]:
-                    self.ask = depth["a"]
-                    self.askDepth = depth["A"]
+                    self.ask = float(depth["a"])
+                    self.askDepth = float(depth["A"])
                 if "b" in depth and depth["b"]:
-                    self.bid = depth["b"]
-                    self.bidDepth = depth["B"]
-                # check_arbitrage("gate")
+                    self.bid = float(depth["b"])
+                    self.bidDepth = float(depth["B"])
+                check_arbitrage("gate")
                 # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
 
@@ -854,12 +842,12 @@ class Bitget:
             if "data" in data:
                 depth = data["data"][0]
                 if "askPr" in depth and depth["askPr"]:
-                    self.ask = depth["askPr"]
-                    self.askDepth = depth["askSz"]
+                    self.ask = float(depth["askPr"])
+                    self.askDepth = float(depth["askSz"])
                 if "bidPr" in depth and depth["bidPr"]:
-                    self.bid = depth["bidPr"]
-                    self.bidDepth = depth["bidSz"]
-                # check_arbitrage("bitget")
+                    self.bid = float(depth["bidPr"])
+                    self.bidDepth = float(depth["bidSz"])
+                check_arbitrage("bitget")
                 # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://ws.bitget.com/v2/ws/public", on_message=on_message, on_open=on_open)
@@ -897,12 +885,12 @@ class OKX:
             if "data" in data:
                 depth = data["data"][0]
                 if "asks" in depth and depth["asks"]:
-                    self.ask = depth["asks"][0][0]
-                    self.askDepth = depth["asks"][0][1]
+                    self.ask = float(depth["asks"][0][0])
+                    self.askDepth = float(depth["asks"][0][1])
                 if "bids" in depth and depth["bids"]:
-                    self.bid = depth["bids"][0][0]
-                    self.bidDepth = depth["bids"][0][1]
-                # check_arbitrage("okx")
+                    self.bid = float(depth["bids"][0][0])
+                    self.bidDepth = float(depth["bids"][0][1])
+                check_arbitrage("okx")
                 # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://ws.okx.com:8443/ws/v5/public", on_message=on_message, on_open=on_open)
@@ -935,11 +923,11 @@ class HTX:
             message = json.loads(gzip.decompress(msg).decode("utf-8"))
             if "tick" in message:
                 depth = message["tick"]
-                self.ask = depth["asks"][0][0]
-                self.askDepth = depth["asks"][0][1]
-                self.bid = depth["bids"][0][0]
-                self.bidDepth = depth["bids"][0][1]
-                # check_arbitrage("htx")
+                self.ask = float(depth["asks"][0][0])
+                self.askDepth = float(depth["asks"][0][1])
+                self.bid = float(depth["bids"][0][0])
+                self.bidDepth = float(depth["bids"][0][1])
+                check_arbitrage("htx")
                 # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://api.huobi.pro/ws", on_message=on_message, on_open=on_open, on_close=on_close)
