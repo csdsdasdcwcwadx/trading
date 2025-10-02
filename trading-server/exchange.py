@@ -10,6 +10,7 @@ from util import check_arbitrage, start_websocket
 import websocket
 from mexcproto import PushDataV3ApiWrapper_pb2
 import gzip
+import io
 # from cdp.auth.utils.jwt import generate_jwt, JwtOptions
 
 with open('../config.json', 'r', encoding='utf-8') as f:
@@ -17,20 +18,35 @@ with open('../config.json', 'r', encoding='utf-8') as f:
 
 # Priority = config["Priority"]
 exchange_type = "MARKET"
-default_currency = 'eth'
+default_currency = 'btc'
 fee = {
-    'binance': 0.0005,
-    'bitopro': 0.0005,
-    'maxcoin': 0.0005,
+    'binance': 0.00075,
+    'bitopro': 0.0008,
+    'maxcoin': 0.00084,
     'pionex': 0.0005,
-    'kraken': 0,
-    "mexc": 0.0005,
-    'bybit': 0.0005,
-    'gate': 0.0005,
-    'bitget': 0.0005,
-    'okx': 0.0005,
-    'htx': 0.0005,
+    'kraken': 0, # test 量能還行，足夠購買一顆
+    "mexc": 0.00025, # test 量能還行，足夠購買一顆
+    'bybit': 0.001,
+    'gate': 0.001,
+    'bitget': 0.0008,
+    'okx': 0.0005, # test 量能還行，足夠購買一顆
+    'htx': 0.002,
+    'bingx': 0.00035 # test 量能太少
 }
+# fee = {
+#     'binance': 0,
+#     'bitopro': 0,
+#     'maxcoin': 0,
+#     'pionex': 0,
+#     'kraken': 0,
+#     "mexc": 0,
+#     'bybit': 0,
+#     'gate': 0,
+#     'bitget': 0,
+#     'okx': 0,
+#     'htx': 0,
+#     'bingx': 0
+# }
 
 class Binance:
     def __init__(self):
@@ -697,6 +713,7 @@ class MEXC:
         self.__API_Key = data["API_Key"]
         self.__Secret_Key = data["Secret_Key"]
         self.currency = default_currency
+        self.__base_url = "https://api.mexc.com"
         self.limit = {
             "price_limit": [],
             "amount_limit": [],
@@ -741,6 +758,55 @@ class MEXC:
             on_message=on_message,
             on_open=on_open
         )
+
+    def order(self, action: str, amount: str, price = '1'):
+        params = {
+            "symbol": f"{self.currency.upper()}USDT",
+            "side": action.upper(),
+            "type": exchange_type.upper(),
+            "quantity": amount,
+            "timestamp": int(time.time() * 1000),
+        }
+        if exchange_type.upper() == "LIMIT":
+            params["price"] = price
+            params["timeInForce"] = "GTC"
+
+        response = self.__sendRequest("POST", "/api/v3/order", params).json()
+
+        return {
+            "isSuccess": bool(response.get('orderId')),
+            "response": response
+        }
+
+    def account(self):
+        response = self.__sendRequest("GET", "/api/v3/account", {})
+        return response.json() # 顯示所有幣種餘額
+
+    def __sendRequest(self, method: str, endpoint: str, params: dict):
+        sorted_items = sorted(params.items())
+        query = "&".join(f"{k}={v}" for k, v in sorted_items)
+
+        signature = hmac.new(
+            self.__Secret_Key.encode(),
+            query.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        params["signature"] = signature
+
+        url = self.__base_url + endpoint
+        headers = {
+            "ApiKey": self.__API_Key,
+            "Content-Type": "application/json"
+        }
+
+        match method.upper():
+            case "POST":
+                resp = requests.post(url=url, headers=headers, json=params)
+            case "GET":
+                resp = requests.get(url=url, headers=headers)
+            
+        return resp
+
 
 class Bybit:
     def __init__(self):
@@ -866,7 +932,7 @@ class OKX:
         self.askDepth = 0
         self.bidDepth = 0
 
-    def start_ws(self):    
+    def start_ws(self):
         def on_open(ws):
             subscribe_msg = {
                 "op": "subscribe",
@@ -931,4 +997,47 @@ class HTX:
                 # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://api.huobi.pro/ws", on_message=on_message, on_open=on_open, on_close=on_close)
+
+class BingX:
+    def __init__(self):
+        data = config["BingX"]
+        self.ws = None
+        self.__API_Key = data["API_Key"]
+        self.__Secret_Key = data["Secret_Key"]
+        self.currency = default_currency
+        self.limit = {"price_limit": [], "amount_limit": [], "notional_limit": []}
+        self.ask = None
+        self.bid = None
+        self.fee = fee['bingx']
+        self.askDepth = 0
+        self.bidDepth = 0
+
+    def start_ws(self):
+    
+        def on_open(ws):
+            subscribe_msg = {"id":"e745cd6d-d0f6-4a70-8d5a-043e4c741b40","reqType": "sub","dataType":f"{self.currency.upper()}-USDT@depth5"}
+            ws.send(json.dumps(subscribe_msg))
+
+        def on_message(ws, msg):
+            compressed_data = gzip.GzipFile(fileobj=io.BytesIO(msg), mode='rb')
+            decompressed_data = compressed_data.read()
+            utf8_data = decompressed_data.decode('utf-8')
+            message = json.loads(utf8_data)
+
+            if "ping" in utf8_data:
+                ws.send("Pong")
+
+            if message.get('data'):
+                if message['data'].get('asks'):
+                    self.ask = float(message['data']['asks'][-1][0])
+                    self.askDepth = float(message['data']['asks'][-1][1])
+
+                if message['data'].get('bids'):
+                    self.bid = float(message['data']['bids'][0][0])
+                    self.bidDepth = float(message['data']['bids'][0][1])
+
+                check_arbitrage("bingx")
+            # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
+
+        self.ws = start_websocket(url="wss://open-api-ws.bingx.com/market", on_message=on_message, on_open=on_open)
 

@@ -19,8 +19,8 @@
 ```poetry update```
 
 ## VScode 進入 poetry 專案內容
-1. 找出 Poetry 虛擬環境路徑
-2. 打開命令列（Ctrl+Shift+P / Cmd+Shift+P
+1. 找出 Poetry 虛擬環境路徑 poetry env info --path
+2. 打開命令列（Ctrl+Shift+P / Cmd+Shift+P）
 3. 搜尋並選擇 Python: Select Interpreter
 4. 選剛剛 poetry env info --path 顯示的路徑填進去 "Enter interpreter path"
 

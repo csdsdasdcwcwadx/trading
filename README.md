@@ -25,6 +25,30 @@
     "Kraken": {
         "API_Key": "",
         "Secret_Key": "" 
+    },
+    "MEXC": {
+        "API_Key": "",
+        "Secret_Key": "" 
+    },
+    "Bybit": {
+        "API_Key": "",
+        "Secret_Key": "" 
+    },
+    "Gate": {
+        "API_Key": "",
+        "Secret_Key": "" 
+    },
+    "Bitget": {
+        "API_Key": "",
+        "Secret_Key": "" 
+    },
+    "OKX": {
+        "API_Key": "",
+        "Secret_Key": "" 
+    },
+    "HTX": {
+        "API_Key": "",
+        "Secret_Key": "" 
     }
 }
 ```

@@ -5,24 +5,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 clients = {}
-maxAmount = 20 # 單次最多交易一顆
+maxAmount = 1 # 單次最多交易一顆
 arbitrage_lock = threading.Lock()
 
 def check_arbitrage(exchangeName: str):
     with arbitrage_lock:
         ex_names = list(clients.keys())
 
-        for other_ex in ex_names:
-            if exchangeName == other_ex:
-                continue
+        best_ask_ex = min(clients, key=lambda ex: clients[ex].ask * (1 + clients[ex].fee) if clients[ex].ask else float("inf")) # 買入ask
+        best_bid_ex = max(clients, key=lambda ex: clients[ex].bid * (1 - clients[ex].fee) if clients[ex].bid else 0) # 賣出bid
+        calculate_profit(best_ask_ex, best_bid_ex)
 
-            # ========== Case 1: exchangeName 買，other_ex 賣 ==========
-            if calculate_profit(exchangeName, other_ex):
-                return # 找到套利後直接結束
+        # for other_ex in ex_names:
+        #     if exchangeName == other_ex:
+        #         continue
 
-            # ========== Case 2: other_ex 買，exchangeName 賣 ==========
-            if calculate_profit(other_ex, exchangeName):
-                return  # 找到套利後直接結束
+        #     # ========== Case 1: exchangeName 買，other_ex 賣 ==========
+        #     if calculate_profit(exchangeName, other_ex):
+        #         return # 找到套利後直接結束
+
+        #     # ========== Case 2: other_ex 買，exchangeName 賣 ==========
+        #     if calculate_profit(other_ex, exchangeName):
+        #         return  # 找到套利後直接結束
 
 def calculate_profit(buy_ex, sell_ex):
     buy_ask = clients[buy_ex].ask
@@ -39,6 +43,8 @@ def calculate_profit(buy_ex, sell_ex):
     amount = min(clients[buy_ex].askDepth, clients[sell_ex].bidDepth, maxAmount)
 
     if profit > 0:
+        if (profit > 1):
+            print(cost, revenue)
         return _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fee, sell_fee)
     else:
         # if buy_ask < sell_bid:
@@ -48,6 +54,8 @@ def calculate_profit(buy_ex, sell_ex):
 def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fee, sell_fee):
     # print(f"[套利機會] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 利潤: {profit}")
     logger.info(f"[套利機會] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 利潤: {profit}")
+    clients[buy_ex].ask = None
+    clients[sell_ex].bid = None
     return True
 
     # 🔄 再查一次最新價格
@@ -79,7 +87,7 @@ def start_websocket(url, on_message, on_open = None, on_close = None):
     return ws
 
 def init_clients():
-    from exchange import Binance, Bitopro, Maxcoin, CoinBase, Pionex, Kraken, MEXC, Bybit, Gate, Bitget, OKX, HTX
+    from exchange import Binance, Bitopro, Maxcoin, CoinBase, Pionex, Kraken, MEXC, Bybit, Gate, Bitget, OKX, HTX, BingX
     clients['bitopro'] = Bitopro()
     clients['binance'] = Binance()
     clients['maxcoin'] = Maxcoin()
@@ -92,3 +100,4 @@ def init_clients():
     clients['bitget'] = Bitget()
     clients['okx'] = OKX()
     clients['htx'] = HTX()
+    clients['bingx'] = BingX()
