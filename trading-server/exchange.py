@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import base64
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 import uuid
 from util import check_arbitrage, start_websocket
 import websocket
@@ -18,14 +18,16 @@ with open('../config.json', 'r', encoding='utf-8') as f:
 
 # Priority = config["Priority"]
 exchange_type = "MARKET"
-default_currency = 'btc'
+default_currency = 'eth'
+stable = 'USDC'
+
 fee = {
     'binance': 0.00075,
     'bitopro': 0.0008,
     'maxcoin': 0.00084,
     'pionex': 0.0005,
     'kraken': 0, # test 量能還行，足夠購買一顆
-    "mexc": 0.00025, # test 量能還行，足夠購買一顆
+    "mexc": 0, # test 量能還行，足夠購買一顆
     'bybit': 0.001,
     'gate': 0.001,
     'bitget': 0.0008,
@@ -71,7 +73,7 @@ class Binance:
 
     def order(self, action: str, amount: str, price = '1'):
         response = self.__sendRequest("POST", "/api/v3/order", {
-            "symbol": f"{self.currency.upper()}USDT",
+            "symbol": f"{self.currency.upper()}{stable.upper()}",
             "side": action,
             "type": exchange_type, # LIMIT or MARKET,
             "quantity": amount,
@@ -86,7 +88,7 @@ class Binance:
 
     def cancel_order(self, orderId: str):
         response = self.__sendRequest("DELETE", "/api/v3/order", {
-            "symbol": f"{self.currency.upper()}USDT",
+            "symbol": f"{self.currency.upper()}{stable.upper()}",
             "orderId": orderId,
         })
         return response.json()
@@ -96,7 +98,7 @@ class Binance:
         return response.json()["balances"] # 顯示所有幣種餘額
 
     def limitation(self):
-        url = self.__base_url + f"/api/v3/exchangeInfo?symbol={self.currency.upper()}USDT"
+        url = self.__base_url + f"/api/v3/exchangeInfo?symbol={self.currency.upper()}{stable.upper()}"
         response = requests.get(url).json()["symbols"][0]['filters']
 
         data = {
@@ -139,14 +141,14 @@ class Binance:
 
             # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
-        self.ws = start_websocket(url=f"wss://stream.binance.com:9443/ws/{self.currency}usdt@depth", on_message=on_message)
+        self.ws = start_websocket(url=f"wss://stream.binance.com:9443/ws/{self.currency}{stable.lower()}@depth", on_message=on_message)
 
     def stop_ws(self):
         if self.ws:
             self.ws.close()
 
     def getPrice(self, action):
-        url = self.__base_url + f"/api/v3/ticker/bookTicker?symbol={self.currency.upper()}USDT"
+        url = self.__base_url + f"/api/v3/ticker/bookTicker?symbol={self.currency.upper()}{stable.upper()}"
         response = requests.get(url).json()
         return {
             'amount': response[f'{action}Qty'],
@@ -199,7 +201,7 @@ class Bitopro:
         self.bidDepth = 0
     
     def order(self, action: str, amount: str, price = '0'):
-        response = self.__sendRequest("POST", f"/orders/{self.currency}_usdt", {
+        response = self.__sendRequest("POST", f"/orders/{self.currency.lower()}_{stable.lower()}", {
             "action": action,
             "amount": amount,
             "type": exchange_type, # LIMIT or MARKET or STOP_LIMIT
@@ -213,7 +215,7 @@ class Bitopro:
         }
 
     def cancel_order(self, orderId: str):
-        response = self.__sendRequest("DELETE", f"/orders/{self.currency.upper()}_USDT/{orderId}", {})
+        response = self.__sendRequest("DELETE", f"/orders/{self.currency.upper()}_{stable.upper()}/{orderId}", {})
         return response.json()
 
     def account(self):
@@ -231,7 +233,7 @@ class Bitopro:
         }
         
         for crypto in response.json()["data"]:
-            if crypto["pair"] == f"{self.currency}_usdt":
+            if crypto["pair"] == f"{self.currency}_{stable.lower()}":
                 data['amount_limit'].append(crypto['minLimitBaseAmount'])
                 data['amount_limit'].append(crypto['maxLimitBaseAmount'])
                 data['notional_limit'].append(crypto['minMarketBuyQuoteAmount'])
@@ -252,14 +254,14 @@ class Bitopro:
 
             # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
-        self.ws = start_websocket(url=f"wss://stream.bitopro.com:443/ws/v1/pub/order-books/{self.currency}_USDT", on_message=on_message)
+        self.ws = start_websocket(url=f"wss://stream.bitopro.com:443/ws/v1/pub/order-books/{self.currency}_{stable.upper()}", on_message=on_message)
 
     def stop_ws(self):
         if self.ws:
             self.ws.close()
 
     def getPrice(self, action):
-        url = self.__base_url + f"/order-book/{self.currency}_usdt?limit=1"
+        url = self.__base_url + f"/order-book/{self.currency}_{stable.lower()}?limit=1"
         response = requests.get(url).json()[f"{action}s"][0]
         return {
             'amount': response['amount'],
@@ -319,7 +321,7 @@ class Maxcoin:
 
     def order(self, action: str, amount: str, price = '0'):
         response = self.__sendRequest("POST", "/api/v3/wallet/spot/order", {
-            'market': f"{self.currency}usdt",
+            'market': f"{self.currency}{stable.lower()}",
             'side': action.lower(),
             'volume': amount,
             # 'price': price,
@@ -352,7 +354,7 @@ class Maxcoin:
         }
 
         for condition in response:
-            if condition['id'] == f"{self.currency}usdt":
+            if condition['id'] == f"{self.currency}{stable.lower()}":
                 data['notional_limit'].append(condition['min_quote_amount'])
                 data['amount_limit'].append(condition['min_base_amount'])
 
@@ -380,7 +382,7 @@ class Maxcoin:
             subscribe_msg = {
                 "action": "sub",
                 "subscriptions": [
-                    {"channel": "book", "market": f"{self.currency}usdt", "depth": 1},
+                    {"channel": "book", "market": f"{self.currency}{stable.lower()}", "depth": 1},
                 ],
                 "id": "client1"
             }
@@ -393,7 +395,7 @@ class Maxcoin:
             self.ws.close()
 
     def getPrice(self, action):
-        url = f"{self.__base_url}/api/v3/depth?market={self.currency}usdt"
+        url = f"{self.__base_url}/api/v3/depth?market={self.currency}{stable.lower()}"
         response = requests.get(url).json()[f'{action}s']
 
         if action == 'bid':
@@ -474,13 +476,13 @@ class CoinBase:
         def on_open(ws):
             subscribe_msg = {
                 "type": "subscribe",
-                "product_ids": ["ETH-USDT"],
+                "product_ids": [f"ETH-{stable.upper()}"],
                 "channels": [
                     "level2",
                     "heartbeat",
                     {
                         "name": "ticker",
-                        "product_ids": ["ETH-USDT"]
+                        "product_ids": [f"ETH-{stable.upper()}"]
                     }
                 ]
             }
@@ -516,7 +518,7 @@ class Pionex:
     
     def order(self, action: str, amount: str, price = '0'):
         response = self.__sendRequest("POST", "/api/v1/trade/order", body={
-            "symbol": f"{self.currency.upper()}_USDT",
+            "symbol": f"{self.currency.upper()}_{stable.upper()}",
             "amount": amount,
             "side": action.upper(),
             "type": exchange_type.upper(),
@@ -545,7 +547,7 @@ class Pionex:
         }
 
         for condition in response['data']['symbols']:
-            if condition['symbol'] == f"{self.currency.upper()}_USDT":
+            if condition['symbol'] == f"{self.currency.upper()}_{stable.upper()}":
                 data['amount_limit'].append(condition['minAmount'])
                 data['amount_limit'].append(condition['maxTradeSize'])
 
@@ -615,7 +617,7 @@ class Pionex:
             subscribe_msg = {
                 "op": "SUBSCRIBE",
                 "topic":  "DEPTH", 
-                "symbol": f"{self.currency.upper()}_USDT",
+                "symbol": f"{self.currency.upper()}_{stable.upper()}",
                 "limit":  5
             }
 
@@ -638,7 +640,7 @@ class Pionex:
             self.ws.close()
 
     def getPrice(self, action):
-        url = f"{self.__base_url}/api/v1/market/depth?symbol={self.currency.upper()}_USDT&limit=1"
+        url = f"{self.__base_url}/api/v1/market/depth?symbol={self.currency.upper()}_{stable.upper()}&limit=1"
         response = requests.get(url).json()['data'][f'{action}s']
 
         return {
@@ -651,7 +653,7 @@ class Kraken:
         data = config["Kraken"]
         self.ws = None
 
-        # self.__base_url = "https://api.pionex.com"
+        self.__base_url = "https://api.kraken.com"
         self.__API_Key = data["API_Key"]
         self.__Secret_Key = data["Secret_Key"]
         self.currency = default_currency
@@ -676,7 +678,7 @@ class Kraken:
                 "params": {
                     "channel": "ticker",
                     "symbol": [
-                        f"{self.currency.upper()}/USDT",
+                        f"{self.currency.upper()}/{stable.upper()}",
                     ],
                     "event_trigger": "bbo"
                 }
@@ -705,6 +707,56 @@ class Kraken:
 
         self.ws = start_websocket(url="wss://ws.kraken.com/v2", on_message=on_message, on_open=on_open)
 
+    def order(self, action: str, amount: str, price = '1'):
+        params = {
+            "pair": f"{self.currency.lower()}{stable.upper()}",
+            "type": action.lower(),
+            "ordertype": exchange_type.lower(),
+            "volume": amount,
+            "nonce": int(time.time() * 1000),
+        }
+        if exchange_type.upper() == "LIMIT":
+            params["price"] = price
+
+        response = self.__sendRequest("POST", "/0/private/AddOrder", params).json()
+
+        return {
+            "isSuccess": bool(response.get('orderId')),
+            "response": response
+        }
+
+    def account(self):
+        response = self.__sendRequest("GET", "/0/private/Balance")
+        return response.json() # 顯示所有幣種餘額
+
+    def __sendRequest(self, method: str, endpoint: str, params: dict = None):
+        postdata = urlencode(params)
+        # message = nonce + postdata
+        message = str(params['nonce']) + postdata
+        sha = hashlib.sha256(message.encode())
+        # path 是 /0/private/AddOrder 這樣的字串
+        hash_digest = sha.digest()
+        # 然後 key 是 secret decode base64? 或 raw 用 hmac
+        key = base64.b64decode(self.__Secret_Key)
+        to_sign = endpoint.encode() + hash_digest
+
+        signature = base64.b64encode(hmac.new(key, to_sign, hashlib.sha512).digest()).decode()
+        params["signature"] = signature
+
+        url = self.__base_url + endpoint
+        headers = {
+            "API-Key": self.__API_Key,
+            "API-Sign": signature
+        }
+
+        match method.upper():
+            case "POST":
+                resp = requests.post(url=url, headers=headers, data=params)
+            case "GET":
+                resp = requests.get(url=url, headers=headers)
+            
+        return resp
+
 class MEXC:
     def __init__(self):
         data = config["MEXC"]
@@ -731,7 +783,7 @@ class MEXC:
             subscribe_msg = {
                 "method": "SUBSCRIPTION",
                 "params": [
-                    f"spot@public.limit.depth.v3.api.pb@{self.currency.upper()}USDT@5"
+                    f"spot@public.limit.depth.v3.api.pb@{self.currency.upper()}{stable.upper()}@5"
                 ]
             }
             ws.send(json.dumps(subscribe_msg))
@@ -761,34 +813,53 @@ class MEXC:
 
     def order(self, action: str, amount: str, price = '1'):
         params = {
-            "symbol": f"{self.currency.upper()}USDT",
+            "symbol": f"{self.currency.upper()}{stable.upper()}",
             "side": action.upper(),
-            "type": exchange_type.upper(),
+            "type": 'limit'.upper(),
             "quantity": amount,
-            "timestamp": int(time.time() * 1000),
+            "price": price,
+            "timeInForce": "GTC"
         }
         if exchange_type.upper() == "LIMIT":
             params["price"] = price
             params["timeInForce"] = "GTC"
 
         response = self.__sendRequest("POST", "/api/v3/order", params).json()
+        print(response)
 
-        return {
-            "isSuccess": bool(response.get('orderId')),
-            "response": response
-        }
+        # return {
+        #     "isSuccess": bool(response.get('orderId')),
+        #     "response": response
+        # }
 
     def account(self):
-        response = self.__sendRequest("GET", "/api/v3/account", {})
+        response = self.__sendRequest("GET", "/api/v3/capital/config/getall")
         return response.json() # 顯示所有幣種餘額
 
-    def __sendRequest(self, method: str, endpoint: str, params: dict):
-        sorted_items = sorted(params.items())
-        query = "&".join(f"{k}={v}" for k, v in sorted_items)
+    def limitation(self):
+        resp = requests.get(f'{self.__base_url}/api/v3/exchangeInfo').json()
+        return resp
+
+    def withdraw(self, amount):
+        params = {
+            "coin": self.currency.upper(),
+            "network": "ERC20",
+            "address": "",
+            "amount": amount,
+            "remark": ""
+        }
+        response = self.__sendRequest("POST", "/api/v3/capital/withdraw/apply", params)
+
+    def getPrice(self):
+        response = requests.get(f'{self.__base_url}/api/v3/depth?symbol={self.currency.upper()}{stable.upper()}&limit=1')
+        print(response.json())
+
+    def __sendRequest(self, method: str, endpoint: str, params: dict = {}):
+        params["timestamp"] = int(time.time() * 1000)
 
         signature = hmac.new(
-            self.__Secret_Key.encode(),
-            query.encode(),
+            self.__Secret_Key.encode("utf-8"),
+            urlencode(params, quote_via=quote).encode("utf-8"),
             hashlib.sha256
         ).hexdigest()
         params["signature"] = signature
@@ -798,15 +869,13 @@ class MEXC:
             "ApiKey": self.__API_Key,
             "Content-Type": "application/json"
         }
-
         match method.upper():
             case "POST":
-                resp = requests.post(url=url, headers=headers, json=params)
+                resp = requests.post(url=url, headers=headers, params=params)
             case "GET":
-                resp = requests.get(url=url, headers=headers)
-            
-        return resp
+                resp = requests.get(url=url, headers=headers, params=params)
 
+        return resp
 
 class Bybit:
     def __init__(self):
@@ -824,7 +893,7 @@ class Bybit:
 
     def start_ws(self):
         def on_open(ws):
-            subscribe_msg = {"op": "subscribe", "args": [f"orderbook.1.{self.currency.upper()}USDT"]}
+            subscribe_msg = {"op": "subscribe", "args": [f"orderbook.1.{self.currency.upper()}{stable.upper()}"]}
             ws.send(json.dumps(subscribe_msg))
 
         def on_message(ws, msg):
@@ -863,7 +932,7 @@ class Gate:
                 "time": int(time.time()),
                 "channel": "spot.book_ticker",
                 "event": "subscribe",
-                "payload": [f"{self.currency.upper()}_USDT"]
+                "payload": [f"{self.currency.upper()}_{stable.upper()}"]
             }
             ws.send(json.dumps(subscribe_msg))
 
@@ -900,7 +969,7 @@ class Bitget:
 
     def start_ws(self):
         def on_open(ws):
-            subscribe_msg = {"op": "subscribe", "args": [{"instType": "SPOT", "channel": "ticker", "instId": f"{self.currency.upper()}USDT"}]}
+            subscribe_msg = {"op": "subscribe", "args": [{"instType": "SPOT", "channel": "ticker", "instId": f"{self.currency.upper()}{stable.upper()}"}]}
             ws.send(json.dumps(subscribe_msg))
 
         def on_message(ws, msg):
@@ -940,7 +1009,7 @@ class OKX:
                     {
                         "channel": "books",
                         "instType": "SPOT",
-                        "instId": f"{self.currency.upper()}-USDT"
+                        "instId": f"{self.currency.upper()}-{stable.upper()}"
                     }
                 ]
             }
@@ -982,7 +1051,7 @@ class HTX:
             self.start_ws()  # 自動重連
     
         def on_open(ws):
-            subscribe_msg = {"sub": f"market.{self.currency.lower()}usdt.depth.step0", "id": "id1"}
+            subscribe_msg = {"sub": f"market.{self.currency.lower()}{stable.lower()}.depth.step0", "id": "id1"}
             ws.send(json.dumps(subscribe_msg))
 
         def on_message(ws, msg):
@@ -1015,7 +1084,7 @@ class BingX:
     def start_ws(self):
     
         def on_open(ws):
-            subscribe_msg = {"id":"e745cd6d-d0f6-4a70-8d5a-043e4c741b40","reqType": "sub","dataType":f"{self.currency.upper()}-USDT@depth5"}
+            subscribe_msg = {"id":"e745cd6d-d0f6-4a70-8d5a-043e4c741b40","reqType": "sub","dataType":f"{self.currency.upper()}-{stable.upper()}@depth5"}
             ws.send(json.dumps(subscribe_msg))
 
         def on_message(ws, msg):

@@ -88,7 +88,7 @@ def start_websocket(url, on_message, on_open = None, on_close = None):
 
 def init_clients():
     from exchange import Binance, Bitopro, Maxcoin, CoinBase, Pionex, Kraken, MEXC, Bybit, Gate, Bitget, OKX, HTX, BingX
-    clients['bitopro'] = Bitopro()
+    # clients['bitopro'] = Bitopro()
     clients['binance'] = Binance()
     clients['maxcoin'] = Maxcoin()
     # clients['coinbase'] = CoinBase()
