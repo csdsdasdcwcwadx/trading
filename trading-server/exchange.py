@@ -707,7 +707,7 @@ class Kraken:
 
         self.ws = start_websocket(url="wss://ws.kraken.com/v2", on_message=on_message, on_open=on_open)
 
-    def order(self, action: str, amount: str, price = '1'):
+    async def order(self, action: str, amount: str, price = '1'):
         params = {
             "pair": f"{self.currency.lower()}{stable.upper()}",
             "type": action.lower(),
@@ -728,6 +728,24 @@ class Kraken:
     def account(self):
         response = self.__sendRequest("GET", "/0/private/Balance")
         return response.json() # 顯示所有幣種餘額
+
+    def withdraw(self):
+        params = {
+            "asset": "",
+            "key": "",
+            "address": "",
+            "amount": "",
+            "max_fee": ""
+        }
+        response = self.__sendRequest("POST", "/api/v3/capital/withdraw/apply", params).json()
+
+    async def getPrice(self, action: str):
+        response = requests.get(f'{self.__base_url}/0/public/Depth?pair={self.currency.upper()}{stable.upper()}&count=1').json()
+        data = response['result'][f'{self.currency.upper()}{stable.upper()}'][f'{action.lower()}s'][0]
+        return {
+            'amount': data[1],
+            'price': data[0]
+        }
 
     def __sendRequest(self, method: str, endpoint: str, params: dict = None):
         postdata = urlencode(params)
@@ -811,36 +829,62 @@ class MEXC:
             on_open=on_open
         )
 
-    def order(self, action: str, amount: str, price = '1'):
-        params = {
+    async def order(self, action: str, amount: str, price = None):
+        params = { # MEXC 只能使用限價單
             "symbol": f"{self.currency.upper()}{stable.upper()}",
             "side": action.upper(),
             "type": 'limit'.upper(),
             "quantity": amount,
-            "price": price,
-            "timeInForce": "GTC"
         }
-        if exchange_type.upper() == "LIMIT":
+
+        if not price == None:
             params["price"] = price
             params["timeInForce"] = "GTC"
 
         response = self.__sendRequest("POST", "/api/v3/order", params).json()
-        print(response)
 
-        # return {
-        #     "isSuccess": bool(response.get('orderId')),
-        #     "response": response
-        # }
+        return {
+            "isSuccess": bool(response.get('orderId')),
+            "response": response,
+            "orderID": response['orderId']
+            # 若失敗再加一個error type
+        }
 
-    def account(self):
-        response = self.__sendRequest("GET", "/api/v3/capital/config/getall")
-        return response.json() # 顯示所有幣種餘額
+    async def cancel_order(self, orderId: str):
+        response = self.__sendRequest("DELETE", "/api/v3/order", {
+            "symbol": f"{self.currency.upper()}{stable.upper()}",
+            "orderId": orderId,
+        }).json()
+        return response.get('status')
+    
+    async def query_order(self, orderID):
+        response = self.__sendRequest("GET", "/api/v3/order", {
+            "symbol": f"{self.currency.upper()}{stable.upper()}",
+            "orderId": orderID
+        }).json()
 
-    def limitation(self):
-        resp = requests.get(f'{self.__base_url}/api/v3/exchangeInfo').json()
+        # FILLED:交易成功 / NEW:尚未交易 / CANCELED:交易取消
+        return {
+            "isFilled": response['status'] == 'FILLED',
+            "price": "",
+            "response": response
+        }
+
+    async def getOrders(self):
+        response = self.__sendRequest("GET", "/api/v3/allOrders", {
+            "symbol": f"{self.currency.upper()}{stable.upper()}"
+        }).json()
+        return response
+
+    async def account(self):
+        response = self.__sendRequest("GET", "/api/v3/account").json()
+        return response['balances'] # 顯示所有幣種餘額
+
+    async def limitation(self):
+        resp = requests.get('/api/v3/exchangeInfo').json()
         return resp
 
-    def withdraw(self, amount):
+    async def withdraw(self, amount):
         params = {
             "coin": self.currency.upper(),
             "network": "ERC20",
@@ -848,11 +892,15 @@ class MEXC:
             "amount": amount,
             "remark": ""
         }
-        response = self.__sendRequest("POST", "/api/v3/capital/withdraw/apply", params)
-
-    def getPrice(self):
-        response = requests.get(f'{self.__base_url}/api/v3/depth?symbol={self.currency.upper()}{stable.upper()}&limit=1')
-        print(response.json())
+        response = self.__sendRequest("POST", "/0/private/Withdraw", params).json()
+        
+    async def getPrice(self, action: str):
+        response = requests.get(f'{self.__base_url}/api/v3/depth?symbol={self.currency.upper()}{stable.upper()}&limit=1').json()
+        data = response[f'{action}s'][0]
+        return {
+            'amount': data[1],
+            'price': data[0]
+        }
 
     def __sendRequest(self, method: str, endpoint: str, params: dict = {}):
         params["timestamp"] = int(time.time() * 1000)
@@ -866,7 +914,7 @@ class MEXC:
 
         url = self.__base_url + endpoint
         headers = {
-            "ApiKey": self.__API_Key,
+            "X-MEXC-APIKEY": self.__API_Key,
             "Content-Type": "application/json"
         }
         match method.upper():
@@ -874,6 +922,8 @@ class MEXC:
                 resp = requests.post(url=url, headers=headers, params=params)
             case "GET":
                 resp = requests.get(url=url, headers=headers, params=params)
+            case "DELETE":
+                resp = requests.delete(url=url, headers=headers, params=params)
 
         return resp
 
