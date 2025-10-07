@@ -35,10 +35,11 @@ def calculate_profit(buy_ex, sell_ex):
     profit = revenue - cost
 
     if profit > 0:
+        # logger.info(f"[套利機會] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 利潤: {profit}")
         asyncio.run(_handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fee, sell_fee))
     else:
-        # if buy_ask < sell_bid:
-        #     print(f"[無套利] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 損益: {profit}")
+        if buy_ask < sell_bid:
+            print(f"[無套利] {buy_ex} 買({buy_ask}) → {sell_ex} 賣({sell_bid}), 損益: {profit}")
         return False
 
 async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fee, sell_fee):
@@ -60,17 +61,18 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
     revenue = new_sell_bid * (1 - sell_fee)
     real_profit = revenue - cost
     amount = min(clients[buy_ex].askDepth, clients[sell_ex].bidDepth) * safe_ratio
+    amount = min(amount, 1)
 
     if real_profit <= 0:
         print(f"❌ 利潤消失，放棄交易 (最新利潤 {real_profit})")
         return False
     
-    logger.info(f"[套利機會] {buy_ex} 買({new_buy_ask}) → {sell_ex} 賣({new_sell_bid}), 利潤: {profit}") # 理想套利
+    logger.info(f"[套利機會] {amount}顆 {buy_ex} 買({new_buy_ask}) → {sell_ex} 賣({new_sell_bid}), 利潤: {profit * amount}") # 理想套利
 
     buy_result, sell_result = await placeOrder(buy_ex, sell_ex, new_buy_ask, new_sell_bid, amount) # 實際下單
     if not (buy_result.get("isSuccess") and sell_result.get("isSuccess")):
         logger.warning("❌ 下單失敗，嘗試撤銷未成交訂單")
-         # 一邊失敗時撤銷另一邊
+
         if buy_result.get("isSuccess"):
             await safe_recover_order(
                 exchange=clients[buy_ex],
@@ -90,12 +92,20 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
     buy_order, sell_order = await checkOrder(buy_ex, sell_ex, buy_result["orderID"], sell_result["orderID"])
     if not (buy_order['isFilled'] and sell_order['isFilled']):
         logger.warning("⚠️ 訂單未完全成交，嘗試撤單")
-        if not buy_order:
-            # 取消訂單或是賣出
-            await clients[buy_ex].cancel_order(buy_result["orderID"])
-        if not sell_order:
-            # 取消訂單或是賣出
-            await clients[sell_ex].cancel_order(sell_result["orderID"])
+        if not buy_order['isFilled']:
+            await safe_recover_order(
+                exchange=clients[buy_ex],
+                side="buy",
+                order_id=buy_result["orderID"],
+                amount=amount
+            )
+        if not sell_order['isFilled']:
+            await safe_recover_order(
+                exchange=clients[sell_ex],
+                side="sell",
+                order_id=sell_result["orderID"],
+                amount=amount
+            )
         return False
     
     actual_buy_price = buy_order['price']
@@ -109,7 +119,6 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
         logger.info(f"✅ 套利成功! 實際利潤: {final_profit}")
     else:
         logger.warning(f"⚠️ 成交後無利潤 (實際: {final_profit})")
-
 
 async def placeOrder(buy_ex, sell_ex, buy_ask, sell_bid, amount):
     results = await asyncio.gather(

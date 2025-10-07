@@ -11,6 +11,7 @@ import websocket
 from mexcproto import PushDataV3ApiWrapper_pb2
 import gzip
 import io
+from abc import ABC, abstractmethod
 # from cdp.auth.utils.jwt import generate_jwt, JwtOptions
 
 with open('../config.json', 'r', encoding='utf-8') as f:
@@ -49,6 +50,62 @@ fee = {
 #     'htx': 0,
 #     'bingx': 0
 # }
+
+class BaseExchange(ABC): # all the exchange classes inheritance from this abstract class
+    def __init__(self, api_key: str, secret_key: str, base_url: str, fee: float):
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.base_url = base_url
+        self.ask = None
+        self.bid = None
+        self.askDepth = 0
+        self.bidDepth = 0
+        self.fee = fee
+
+    @abstractmethod
+    async def order(self, action: str, amount: str, price=None):
+        """place an order"""
+        pass
+
+    @abstractmethod
+    async def cancel_order(self, order_id: str):
+        pass
+
+    @abstractmethod
+    async def query_order(self, order_id: str):
+        pass
+
+    @abstractmethod
+    async def account(self):
+        """get account balances"""
+        pass
+
+    @abstractmethod
+    async def getPrice(self, action: str):
+        """get current best ask and best bid"""
+        pass
+
+    @abstractmethod
+    async def withdraw(self):
+        """withdraw coins through the chain"""
+        pass
+
+    def send_request(self, method: str, endpoint: str, params: dict = {}):
+        params["timestamp"] = int(time.time() * 1000)
+        url = self.base_url + endpoint
+
+        headers = {
+            # 有需要可以放 API 簽名邏輯
+        }
+
+        match method.upper():
+            case "POST":
+                resp = requests.post(url=url, headers=headers, params=params)
+            case "GET":
+                resp = requests.get(url=url, headers=headers, params=params)
+            case "DELETE":
+                resp = requests.delete(url=url, headers=headers, params=params)
+        return resp
 
 class Binance:
     def __init__(self):
@@ -721,15 +778,37 @@ class Kraken:
         response = self.__sendRequest("POST", "/0/private/AddOrder", params).json()
 
         return {
-            "isSuccess": bool(response.get('orderId')),
-            "response": response
+            "isSuccess": bool(response.get('result')),
+            "response": response,
+            "orderID": response['result']['txid']
         }
 
-    def account(self):
+    async def cancel_order(self, orderId: str):
+        response = self.__sendRequest("POST", "/0/private/CancelOrder", {
+            "pair": f"{self.currency.lower()}{stable.upper()}",
+            "txid": orderId,
+        }).json()
+        return response.get('pending')
+
+    async def query_order(self, orderID):
+        response = self.__sendRequest("GET", "/0/private/QueryOrders", {
+            "txid": orderID
+        }).json()
+
+        data = response['result']
+
+        # FILLED:交易成功 / NEW:尚未交易 / CANCELED:交易取消
+        return {
+            "isFilled": data['status'] == 'pending',
+            "price": data['price'],
+            "response": data
+        }
+
+    async def account(self):
         response = self.__sendRequest("GET", "/0/private/Balance")
         return response.json() # 顯示所有幣種餘額
 
-    def withdraw(self):
+    async def withdraw(self):
         params = {
             "asset": "",
             "key": "",
@@ -866,15 +945,9 @@ class MEXC:
         # FILLED:交易成功 / NEW:尚未交易 / CANCELED:交易取消
         return {
             "isFilled": response['status'] == 'FILLED',
-            "price": "",
+            "price": response['price'],
             "response": response
         }
-
-    async def getOrders(self):
-        response = self.__sendRequest("GET", "/api/v3/allOrders", {
-            "symbol": f"{self.currency.upper()}{stable.upper()}"
-        }).json()
-        return response
 
     async def account(self):
         response = self.__sendRequest("GET", "/api/v3/account").json()
@@ -893,7 +966,7 @@ class MEXC:
             "remark": ""
         }
         response = self.__sendRequest("POST", "/0/private/Withdraw", params).json()
-        
+
     async def getPrice(self, action: str):
         response = requests.get(f'{self.__base_url}/api/v3/depth?symbol={self.currency.upper()}{stable.upper()}&limit=1').json()
         data = response[f'{action}s'][0]
