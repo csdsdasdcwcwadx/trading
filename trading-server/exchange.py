@@ -823,6 +823,7 @@ class Kraken:
         response = requests.get(f'{self.__base_url}/0/public/Depth?pair={pair}&count=1').json()
         arr = (response.get("result", {}).get(f'{pair}', {}).get(f'{action.lower()}s', []) or [None])
         data = arr[0]
+
         return {
             "price": float(data[0]) if data else None,
             "amount": float(data[1]) if data else None

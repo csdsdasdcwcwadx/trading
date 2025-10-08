@@ -14,11 +14,11 @@ def check_arbitrage(exchangeName: str):
         # ex_names = list(clients.keys())
 
         best_ask_ex = min(clients, key=lambda ex: clients[ex].ask * (1 + clients[ex].fee) if clients[ex].ask else float("inf")) # 買入ask
-        best_bid_ex = max(clients, key=lambda ex: clients[ex].bid * (1 - clients[ex].fee) if clients[ex].bid else 0)
-        # if best_ask_ex == 'mexc':
-        #     best_bid_ex = 'kraken'
-        # else:
-        #     best_bid_ex = 'mexc'
+        # best_bid_ex = max(clients, key=lambda ex: clients[ex].bid * (1 - clients[ex].fee) if clients[ex].bid else 0)
+        if best_ask_ex == 'mexc':
+            best_bid_ex = 'kraken'
+        else:
+            best_bid_ex = 'mexc'
         calculate_profit(best_ask_ex, best_bid_ex)
 
 def calculate_profit(buy_ex, sell_ex):
@@ -51,7 +51,7 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
         clients[buy_ex].getPrice("ask"),
         clients[sell_ex].getPrice("bid")
     )
-    if not (new_buy_ask.get('price') and new_sell_bid.get('price')):
+    if not (new_buy_ask_data.get('price') and new_sell_bid_data.get('price')):
         return False
 
     new_buy_ask = new_buy_ask_data['price']
@@ -125,6 +125,7 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
     final_revenue = actual_sell_price * (1 - sell_fee)
     final_profit = final_revenue - final_cost
 
+    # 交易結束，寫進DB
     if final_profit > 0:
         logger.info(f"✅ 套利成功! 實際利潤: {final_profit}")
     else:
@@ -151,6 +152,7 @@ async def safe_recover_order(exchange, side, order_id, amount, currentPrice, ret
 
     try:
         if await exchange.cancel_order(order_id):
+            # 交易結束，寫進DB
             # logging.info(f"✅ {exchange.name} 訂單 {order_id} 已成功取消")
             return True
         else:
@@ -169,12 +171,15 @@ async def safe_recover_order(exchange, side, order_id, amount, currentPrice, ret
                 order = await exchange.query_order(order_id)
 
                 if order.get("isFilled"):
-                    logger.info(f"對沖'{"虧損" if currentPrice > market_price else "賺取"}' {abs(currentPrice - market_price) * amount}")
+                    # 交易結束，寫進DB
+                    isProfit = "虧損" if currentPrice > market_price else "賺取"
+                    logger.info(f"對沖'{isProfit}' {abs(currentPrice - market_price) * amount}")
                     # 止損對沖成功, 買入價格 : {currentPrice}, 對沖價格 : {market_price}.
                     return True
                 else:
                     # logging.warning(f"⏳ 止損單未成交，嘗試撤銷再重下")
                     if await exchange.cancel_order(order_id):
+                        # 交易結束，寫進DB
                         return True
 
             return False
@@ -213,13 +218,13 @@ def init_clients():
     # clients['bitopro'] = Bitopro()
     # clients['binance'] = Binance()
     # clients['maxcoin'] = Maxcoin()
-    # # clients['coinbase'] = CoinBase()
+    # clients['coinbase'] = CoinBase()
     # clients['pionex'] = Pionex()
-    clients['kraken'] = Kraken()
-    clients['mexc'] = MEXC()
     # clients['bybit'] = Bybit()
     # clients['gate'] = Gate()
     # clients['bitget'] = Bitget()
     # clients['okx'] = OKX()
     # clients['htx'] = HTX()
     # clients['bingx'] = BingX()
+    clients['kraken'] = Kraken()
+    clients['mexc'] = MEXC()
