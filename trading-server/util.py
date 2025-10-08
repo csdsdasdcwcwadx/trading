@@ -8,8 +8,30 @@ logger = logging.getLogger(__name__)
 clients = {}
 safe_ratio = 0.9
 arbitrage_lock = threading.Lock()
+transfer_info = {
+    "state": False,
+    "exchangeA": None, # 轉出穩定幣的
+    "exchangeB": None, # 轉出coin的
+    "A_amount": None,
+    "B_amount": None,
+}
 
 def check_arbitrage(exchangeName: str):
+    global transfer_info
+
+    if transfer_info["state"]:
+        done = asyncio.run(pollingAccount())
+        if done:
+            transfer_info = {
+                "state": False,
+                "exchangeA": None,
+                "exchangeB": None,
+                "A_amount": None,
+                "B_amount": None,
+            }
+        else:
+            return False
+
     with arbitrage_lock:
         # ex_names = list(clients.keys())
 
@@ -188,6 +210,7 @@ async def safe_recover_order(exchange, side, order_id, amount, currentPrice, ret
         return False
 
 async def balanceAccount(buy_ex, sell_ex):
+    global transfer_info
     buy_account, sell_account = await asyncio.gather(
         buy_ex.account(),
         sell_ex.account()
@@ -195,16 +218,36 @@ async def balanceAccount(buy_ex, sell_ex):
 
     stable_avg = (buy_account[0] + sell_account[0]) / 2 # 穩定幣總和
     coin_avg = (buy_account[1] + sell_account[1]) / 2 # 幣總和
+    transfer_info["state"] = True
 
-    if buy_account[0] > sell_account[0]:
+    if buy_account[0] > sell_account[0]: # 轉出穩定幣的交易所
+        transfer_info["exchangeA"] = buy_ex
+        transfer_info["A_amount"] = buy_account[0]
         buy_ex.withdraw(f"{(buy_account[0] - stable_avg):.4f}")
     else:
+        transfer_info["exchangeA"] = sell_ex
+        transfer_info["A_amount"] = sell_account[0]
         sell_ex.withdraw(f"{(sell_account[0] - stable_avg):.4f}")
 
-    if buy_account[1] > sell_account[1]:
+    if buy_account[1] > sell_account[1]: # 轉出coin的交易所
+        transfer_info["exchangeB"] = buy_ex
+        transfer_info["B_amount"] = buy_account[1]
         buy_ex.withdraw(f"{(buy_account[1] - coin_avg):.4f}")
     else:
+        transfer_info["exchangeB"] = sell_ex
+        transfer_info["B_amount"] = sell_account[1]
         sell_ex.withdraw(f"{(sell_account[1] - coin_avg):.4f}")
+
+async def pollingAccount():
+    while True:
+        exchangeA, exchangeB = await asyncio.gather(
+            transfer_info["exchangeA"].account(),
+            transfer_info["exchangeB"].account()
+        )
+        if transfer_info["A_amount"] > exchangeA[0] and transfer_info["B_amount"] > exchangeB[1]:
+            return True
+
+        await asyncio.sleep(30) # 輸出時強制卡住30秒
 
 def start_websocket(url, on_message, on_open = None, on_close = None):
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open, on_close=on_close)
