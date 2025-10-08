@@ -47,20 +47,23 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
     clients[sell_ex].bid = None
 
     # 🔄 再查一次最新價格
-    new_buy_ask, new_sell_bid = await asyncio.gather(
+    new_buy_ask_data, new_sell_bid_data = await asyncio.gather(
         clients[buy_ex].getPrice("ask"),
         clients[sell_ex].getPrice("bid")
     )
     if not (new_buy_ask.get('price') and new_sell_bid.get('price')):
         return False
 
-    new_buy_ask = float(new_buy_ask['price'])
-    new_sell_bid = float(new_sell_bid['price'])
+    new_buy_ask = new_buy_ask_data['price']
+    new_sell_bid = new_sell_bid_data['price']
+
+    new_buy_amount = new_buy_ask_data['amount']
+    new_sell_amount = new_sell_bid_data['amount']
 
     cost = new_buy_ask * (1 + buy_fee)
     revenue = new_sell_bid * (1 - sell_fee)
     real_profit = revenue - cost
-    amount = min(clients[buy_ex].askDepth, clients[sell_ex].bidDepth) * safe_ratio
+    amount = min(new_buy_amount, new_sell_amount) * safe_ratio
     amount = min(amount, 1)
 
     if real_profit <= 0:
@@ -78,33 +81,40 @@ async def _handle_opportunity(buy_ex, sell_ex, buy_ask, sell_bid, profit, buy_fe
                 exchange=clients[buy_ex],
                 side="buy",
                 order_id=buy_result["orderID"],
-                amount=amount
+                amount=amount,
+                currentPrice=new_buy_ask
             )
         if sell_result.get("isSuccess"):
             await safe_recover_order(
                 exchange=clients[sell_ex],
                 side="sell",
                 order_id=sell_result["orderID"],
-                amount=amount
+                amount=amount,
+                currentPrice=new_sell_bid
             )
+        # 若其中一邊資金不足時，進行帳戶平衡
+        await balanceAccount(clients[buy_ex], clients[sell_ex])
         return False
     
     buy_order, sell_order = await checkOrder(buy_ex, sell_ex, buy_result["orderID"], sell_result["orderID"])
-    if not (buy_order['isFilled'] and sell_order['isFilled']):
+    if not (buy_order.get('isFilled') and sell_order.get('isFilled')):
         logger.warning("⚠️ 訂單未完全成交，嘗試撤單")
+
         if not buy_order['isFilled']:
             await safe_recover_order(
                 exchange=clients[buy_ex],
                 side="buy",
                 order_id=buy_result["orderID"],
-                amount=amount
+                amount=amount,
+                currentPrice=new_buy_ask
             )
         if not sell_order['isFilled']:
             await safe_recover_order(
                 exchange=clients[sell_ex],
                 side="sell",
                 order_id=sell_result["orderID"],
-                amount=amount
+                amount=amount,
+                currentPrice=new_sell_bid
             )
         return False
     
@@ -136,7 +146,7 @@ async def checkOrder(buy_ex, sell_ex, buy_orderId, sell_orderId):
 
     return results
 
-async def safe_recover_order(exchange, side, order_id, amount, retry_limit=3, retry_delay=1.0):
+async def safe_recover_order(exchange, side, order_id, amount, currentPrice, retry_limit=3, retry_delay=1.0):
     opposite_side = 'sell' if side == 'buy' else 'buy'
 
     try:
@@ -150,7 +160,7 @@ async def safe_recover_order(exchange, side, order_id, amount, retry_limit=3, re
             
             for attempt in range(1, retry_limit + 1):
                 # logging.info(f"🚨 嘗試第 {attempt} 次止損單：{exchange.name} {opposite_side} {amount} @ {market_price}")
-                market_price = exchange.getattr(price_side)
+                market_price = getattr(exchange, price_side)
                 order_res = await exchange.order(opposite_side, amount, market_price)
                 order_id = order_res.get("orderID")
 
@@ -159,7 +169,8 @@ async def safe_recover_order(exchange, side, order_id, amount, retry_limit=3, re
                 order = await exchange.query_order(order_id)
 
                 if order.get("isFilled"):
-                    # 止損對沖成功
+                    logger.info(f"對沖'{"虧損" if currentPrice > market_price else "賺取"}' {abs(currentPrice - market_price) * amount}")
+                    # 止損對沖成功, 買入價格 : {currentPrice}, 對沖價格 : {market_price}.
                     return True
                 else:
                     # logging.warning(f"⏳ 止損單未成交，嘗試撤銷再重下")
@@ -171,8 +182,24 @@ async def safe_recover_order(exchange, side, order_id, amount, retry_limit=3, re
     except Exception as e:
         return False
 
-async def balanceAccount():
-    print('balance')
+async def balanceAccount(buy_ex, sell_ex):
+    buy_account, sell_account = await asyncio.gather(
+        buy_ex.account(),
+        sell_ex.account()
+    )
+
+    stable_avg = (buy_account[0] + sell_account[0]) / 2 # 穩定幣總和
+    coin_avg = (buy_account[1] + sell_account[1]) / 2 # 幣總和
+
+    if buy_account[0] > sell_account[0]:
+        buy_ex.withdraw(f"{(buy_account[0] - stable_avg):.4f}")
+    else:
+        sell_ex.withdraw(f"{(sell_account[0] - stable_avg):.4f}")
+
+    if buy_account[1] > sell_account[1]:
+        buy_ex.withdraw(f"{(buy_account[1] - coin_avg):.4f}")
+    else:
+        sell_ex.withdraw(f"{(sell_account[1] - coin_avg):.4f}")
 
 def start_websocket(url, on_message, on_open = None, on_close = None):
     ws = websocket.WebSocketApp(url, on_message=on_message, on_open=on_open, on_close=on_close)

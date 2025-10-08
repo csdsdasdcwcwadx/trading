@@ -776,11 +776,11 @@ class Kraken:
             params["price"] = price
 
         response = self.__sendRequest("POST", "/0/private/AddOrder", params).json()
+        result = response.get('result')
 
         return {
-            "isSuccess": bool(response.get('result')),
-            "response": response,
-            "orderID": response['result']['txid']
+            "isSuccess": bool(result),
+            "orderID": result.get('txid') if bool(result) else None
         }
 
     async def cancel_order(self, orderId: str):
@@ -795,35 +795,37 @@ class Kraken:
             "txid": orderID
         }).json()
 
-        data = response['result']
+        result = response.get('result')
 
         # FILLED:交易成功 / NEW:尚未交易 / CANCELED:交易取消
         return {
-            "isFilled": data['status'] == 'pending',
-            "price": data['price'],
-            "response": data
+            "isFilled": result['status'] == 'pending' if bool(result) else None,
+            "price": float(result['price']) if bool(result) else None,
         }
 
     async def account(self):
         response = self.__sendRequest("GET", "/0/private/Balance")
+        return []
         return response.json() # 顯示所有幣種餘額
 
-    async def withdraw(self):
+    async def withdraw(self, amount):
         params = {
             "asset": "",
             "key": "",
             "address": "",
-            "amount": "",
+            "amount": amount,
             "max_fee": ""
         }
         response = self.__sendRequest("POST", "/api/v3/capital/withdraw/apply", params).json()
 
     async def getPrice(self, action: str):
-        response = requests.get(f'{self.__base_url}/0/public/Depth?pair={self.currency.upper()}{stable.upper()}&count=1').json()
-        data = response['result'][f'{self.currency.upper()}{stable.upper()}'][f'{action.lower()}s'][0]
+        pair = f'{self.currency.upper()}{stable.upper()}'
+        response = requests.get(f'{self.__base_url}/0/public/Depth?pair={pair}&count=1').json()
+        arr = (response.get("result", {}).get(f'{pair}', {}).get(f'{action.lower()}s', []) or [None])
+        data = arr[0]
         return {
-            'amount': data[1],
-            'price': data[0]
+            "price": float(data[0]) if data else None,
+            "amount": float(data[1]) if data else None
         }
 
     def __sendRequest(self, method: str, endpoint: str, params: dict = None):
@@ -921,12 +923,11 @@ class MEXC:
             params["timeInForce"] = "GTC"
 
         response = self.__sendRequest("POST", "/api/v3/order", params).json()
+        orderId = response.get('orderId')
 
         return {
-            "isSuccess": bool(response.get('orderId')),
-            "response": response,
-            "orderID": response['orderId']
-            # 若失敗再加一個error type
+            "isSuccess": bool(orderId),
+            "orderID": orderId
         }
 
     async def cancel_order(self, orderId: str):
@@ -944,14 +945,15 @@ class MEXC:
 
         # FILLED:交易成功 / NEW:尚未交易 / CANCELED:交易取消
         return {
-            "isFilled": response['status'] == 'FILLED',
-            "price": response['price'],
-            "response": response
+            "isFilled": bool(response.get('status') == 'FILLED'),
+            "price": float(response.get('price')),
         }
 
     async def account(self):
         response = self.__sendRequest("GET", "/api/v3/account").json()
-        return response['balances'] # 顯示所有幣種餘額
+        # 回傳當前幣種及穩地幣數量
+        return []
+        return response.get('balances') # 顯示所有幣種餘額
 
     async def limitation(self):
         resp = requests.get('/api/v3/exchangeInfo').json()
@@ -969,10 +971,11 @@ class MEXC:
 
     async def getPrice(self, action: str):
         response = requests.get(f'{self.__base_url}/api/v3/depth?symbol={self.currency.upper()}{stable.upper()}&limit=1').json()
-        data = response[f'{action}s'][0]
+        data = (response.get(f'{action}s') or [None])[0]
+
         return {
-            'amount': data[1],
-            'price': data[0]
+            'amount': float(data[1]) if data else None,
+            'price': float(data[0]) if data else None
         }
 
     def __sendRequest(self, method: str, endpoint: str, params: dict = {}):
