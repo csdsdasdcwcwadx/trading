@@ -804,11 +804,15 @@ class Kraken:
         }
 
     async def account(self):
-        response = self.__sendRequest("GET", "/0/private/Balance")
-        return []
-        return response.json() # 顯示所有幣種餘額
+        response = self.__sendRequest("POST", "/0/private/Balance").json()
+        result = response.get('result')
+        stableCoin = result.get(f"{stable}.F") if bool(result) else None
+        coin = result.get(default_currency.upper()) if bool(result) else None
+        return [stableCoin, coin]
 
-    async def withdraw(self, amount):
+    async def withdraw(self, amount, type):
+        if type != 'stable' or type != 'coin':
+            return False
         params = {
             "asset": "",
             "key": "",
@@ -829,19 +833,15 @@ class Kraken:
             "amount": float(data[1]) if data else None
         }
 
-    def __sendRequest(self, method: str, endpoint: str, params: dict = None):
+    def __sendRequest(self, method: str, endpoint: str, params: dict = {}):
+        params['nonce'] = int(time.time() * 1000)
         postdata = urlencode(params)
-        # message = nonce + postdata
-        message = str(params['nonce']) + postdata
-        sha = hashlib.sha256(message.encode())
-        # path 是 /0/private/AddOrder 這樣的字串
-        hash_digest = sha.digest()
-        # 然後 key 是 secret decode base64? 或 raw 用 hmac
-        key = base64.b64decode(self.__Secret_Key)
-        to_sign = endpoint.encode() + hash_digest
 
+        sha = hashlib.sha256((str(params['nonce']) + postdata).encode()).digest()
+        key = base64.b64decode(self.__Secret_Key)
+
+        to_sign = endpoint.encode() + sha
         signature = base64.b64encode(hmac.new(key, to_sign, hashlib.sha512).digest()).decode()
-        params["signature"] = signature
 
         url = self.__base_url + endpoint
         headers = {
@@ -953,14 +953,26 @@ class MEXC:
     async def account(self):
         response = self.__sendRequest("GET", "/api/v3/account").json()
         # 回傳當前幣種及穩地幣數量
-        return []
-        return response.get('balances') # 顯示所有幣種餘額
+        balances = response.get('balances')
+        stableCoin = None
+        coin = None
+        
+        if bool(balances):
+            for data in balances:
+                if data['asset'] == stable.upper():
+                    stableCoin = data['available']
+                elif data['asset'] == self.currency.upper():
+                    coin = data['available']
+
+        return [stableCoin, coin]
 
     async def limitation(self):
         resp = requests.get('/api/v3/exchangeInfo').json()
         return resp
 
-    async def withdraw(self, amount):
+    async def withdraw(self, amount, type):
+        if type != 'stable' or type != 'coin':
+            return False
         params = {
             "coin": self.currency.upper(),
             "network": "ERC20",
@@ -1236,4 +1248,3 @@ class BingX:
             # print(f"Best Bid: {self.bid}, Best Ask: {self.ask}")
 
         self.ws = start_websocket(url="wss://open-api-ws.bingx.com/market", on_message=on_message, on_open=on_open)
-

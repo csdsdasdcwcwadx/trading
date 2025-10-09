@@ -223,20 +223,20 @@ async def balanceAccount(buy_ex, sell_ex):
     if buy_account[0] > sell_account[0]: # 轉出穩定幣的交易所
         transfer_info["exchangeA"] = buy_ex
         transfer_info["A_amount"] = buy_account[0]
-        buy_ex.withdraw(f"{(buy_account[0] - stable_avg):.4f}")
+        buy_ex.withdraw(f"{(buy_account[0] - stable_avg):.4f}", 'stable')
     else:
         transfer_info["exchangeA"] = sell_ex
         transfer_info["A_amount"] = sell_account[0]
-        sell_ex.withdraw(f"{(sell_account[0] - stable_avg):.4f}")
+        sell_ex.withdraw(f"{(sell_account[0] - stable_avg):.4f}", 'stable')
 
     if buy_account[1] > sell_account[1]: # 轉出coin的交易所
         transfer_info["exchangeB"] = buy_ex
         transfer_info["B_amount"] = buy_account[1]
-        buy_ex.withdraw(f"{(buy_account[1] - coin_avg):.4f}")
+        buy_ex.withdraw(f"{(buy_account[1] - coin_avg):.4f}", 'coin')
     else:
         transfer_info["exchangeB"] = sell_ex
         transfer_info["B_amount"] = sell_account[1]
-        sell_ex.withdraw(f"{(sell_account[1] - coin_avg):.4f}")
+        sell_ex.withdraw(f"{(sell_account[1] - coin_avg):.4f}", 'coin')
 
 async def pollingAccount():
     while True:
